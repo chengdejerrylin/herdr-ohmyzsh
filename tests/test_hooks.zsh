@@ -2,7 +2,8 @@
 # preexec/precmd behaviour inside a Herdr pane, against the mock CLI.
 source "${0:A:h}/lib.zsh"
 setup_sandbox
-export HERDR_ENV=1 HERDR_PANE_ID=w1:p1 HERDR_OMZ_THRESHOLD=0
+export HERDR_ENV=1 HERDR_PANE_ID=w1:p1 HERDR_OMZ_THRESHOLD=0 HERDR_OMZ_IDLE_TIMEOUT=0
+export TMPDIR="$SB"
 
 # --- a slow, successful command --------------------------------------------
 run_case '
@@ -159,5 +160,50 @@ run_case '
   _herdr_omz_zshexit
 ' >/dev/null
 check_contains "zshexit releases the agent" 'pane release-agent w1:p1 --source ohmyzsh --agent make' "$(mock_log)"
+
+# --- idle timeout ---------------------------------------------------------------
+HERDR_OMZ_IDLE_TIMEOUT=0.5 run_case '
+  _herdr_omz_preexec "make" "make"
+  _wait_log -- "--state working"
+  true; _herdr_omz_precmd
+  sleep 0.2
+  grep -c -- "release-agent" "$HERDR_MOCK_LOG"
+  _wait_log -- "release-agent"
+' | read out
+log="$(mock_log)"
+check "a fractional timeout is waited out, not fired at once" "0" "$out"
+check_contains "an idle pane releases its badge after the timeout" 'pane release-agent w1:p1 --source ohmyzsh --agent make --seq ' "$log"
+
+HERDR_OMZ_IDLE_TIMEOUT=0.5 run_case '
+  _herdr_omz_preexec "make" "make"
+  _wait_log -- "--state working"
+  true; _herdr_omz_precmd
+  _herdr_omz_preexec "make" "make"
+  sleep 1; true
+' >/dev/null
+check "a new command cancels the pending timeout" "1" "$(mock_log | grep -c -- release-agent)"
+
+HERDR_OMZ_IDLE_TIMEOUT=0.5 run_case '
+  _herdr_omz_preexec "make" "make"
+  _wait_log -- "--state working"
+  true; _herdr_omz_precmd
+  zsh -f -c "source '"$REPO"'/herdr.plugin.zsh
+    _herdr_omz_preexec rspec rspec; sleep 0.1; true; _herdr_omz_precmd
+    _herdr_omz_preexec ls ls"
+  sleep 1; true
+' >/dev/null
+log="$(mock_log)"
+check_contains "a nested shell does not cancel the outer timeout" '--agent make --seq ' "$log"
+check "the nested shell badge is released once" "1" "$(print -r -- "$log" | grep -c -- '--agent rspec --seq')"
+
+run_case '
+  _herdr_omz_preexec "make" "make"
+  _wait_log -- "--state working"
+  true; _herdr_omz_precmd
+  sleep 0.3
+' >/dev/null
+check_lacks "HERDR_OMZ_IDLE_TIMEOUT=0 never auto-releases" 'release-agent' "$(mock_log)"
+
+check "shells remove their genfile on exit" "" "$(print -r -- $SB/herdr-omz-release-*(N))"
 
 finish

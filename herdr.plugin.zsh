@@ -69,7 +69,7 @@ typeset -g  _herdr_omz_label=
 typeset -gF _herdr_omz_start=0
 typeset -gi _herdr_omz_watcher=0
 typeset -gi _herdr_omz_registered=0
-typeset -g  _herdr_omz_genfile="${TMPDIR:-/tmp}/herdr-omz-release-${HERDR_PANE_ID}"
+typeset -g  _herdr_omz_genfile="${TMPDIR:-/tmp}/herdr-omz-release-${HERDR_PANE_ID}.$$"
 
 # Herdr drops a report whose --seq is not above the last one it saw for this
 # pane and source, and that memory outlives the shell. A clock in microseconds
@@ -212,20 +212,23 @@ function _herdr_omz_precmd {
     # report's own seq; if _herdr_omz_release ran in the meantime (a new
     # preexec, or an earlier timeout already firing), the file no longer
     # matches and this job is a no-op.
-    if (( HERDR_OMZ_IDLE_TIMEOUT > 0 )); then
+    #
+    # The job must not call `exit`: an explicit exit in a subshell runs the
+    # zshexit hooks, whose _herdr_omz_release would send a release anyway.
+    local -i cs=$(( HERDR_OMZ_IDLE_TIMEOUT * 100 ))
+    if (( cs > 0 )); then
       local gen=$REPLY genfile=$_herdr_omz_genfile pane=$HERDR_PANE_ID
       local agentlabel=$label bin=$_herdr_omz_bin
       print -r -- "$gen" >| "$genfile" 2>/dev/null
       (
-        zmodload zsh/zselect zsh/datetime 2>/dev/null
-        zselect -t $(( HERDR_OMZ_IDLE_TIMEOUT * 100 ))
+        zmodload zsh/zselect 2>/dev/null && zselect -t $cs
         local current
         current=$(<"$genfile" 2>/dev/null)
-        [[ "$current" == "$gen" ]] || exit 0
-        local -F now=$EPOCHREALTIME
-        local -i seqv=$(( now * 1000000 ))
-        "$bin" pane release-agent "$pane" \
-          --source ohmyzsh --agent "$agentlabel" --seq $seqv
+        if [[ "$current" == "$gen" ]]; then
+          _herdr_omz_seq
+          "$bin" pane release-agent "$pane" \
+            --source ohmyzsh --agent "$agentlabel" --seq $REPLY
+        fi
       ) >/dev/null 2>&1 &!
     fi
   fi
@@ -253,6 +256,7 @@ function _herdr_omz_focused {
 function _herdr_omz_zshexit {
   _herdr_omz_kill_watcher
   _herdr_omz_release
+  rm -f -- "$_herdr_omz_genfile" 2>/dev/null
 }
 
 add-zsh-hook preexec _herdr_omz_preexec
