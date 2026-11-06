@@ -22,18 +22,6 @@ mkdir -p "$custom/plugins" || exit 1
 if [[ -L "$target" ]]; then
   rm -f "$target" && ln -s "$root" "$target" || exit 1
   print "herdr-ohmyzsh: updated link $target -> $root"
-elif [[ -d "$target" && "${target:A}" == "${root:A}" ]]; then
-  # A plain clone running its own installer: moving it would orphan the link.
-  print "herdr-ohmyzsh: $target is this checkout, so it was left in place."
-elif [[ -d "$target" ]]; then
-  # An older copy, such as a plain clone. Keep it as a backup, never delete it.
-  base="$target.backup-$(date +%Y%m%d-%H%M%S)" n=0
-  backup="$base"
-  while [[ -e "$backup" || -L "$backup" ]]; do backup="$base.$(( ++n ))"; done
-  mv -- "$target" "$backup" || exit 1
-  ln -s "$root" "$target" || { mv -- "$backup" "$target"; exit 1 }
-  print "herdr-ohmyzsh: replaced the directory at $target with a link to $root."
-  print "herdr-ohmyzsh: the old directory was moved to $backup; delete it once you no longer need it."
 elif [[ -e "$target" ]]; then
   print "herdr-ohmyzsh: $target already exists and is not a symlink, so it was left alone."
   print "Remove it and rerun this script to use the copy at $root."

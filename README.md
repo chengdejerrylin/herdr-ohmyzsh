@@ -126,10 +126,6 @@ git clone https://github.com/robbyrussell/herdr-ohmyzsh \
   "${ZSH_CUSTOM:-$HOME/.oh-my-zsh/custom}/plugins/herdr"
 ```
 
-If you later install through Herdr, its installer replaces that directory with
-a link to Herdr's copy and moves the clone to `plugins/herdr.backup-<timestamp>`.
-Delete the backup once you no longer need it.
-
 ## Uninstall
 
 ```sh
