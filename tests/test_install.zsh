@@ -30,11 +30,40 @@ mkdir -p "$SB/custom"
 out="$(ZSH_CUSTOM="$SB/custom" zsh "$REPO/bin/install-zsh-plugin" 2>&1)"
 check "ZSH_CUSTOM is honoured" "$REPO" "$(readlink "$SB/custom/plugins/herdr")"
 
-# A real directory in the way is left alone.
+# A real directory in the way, such as an old plain clone, is replaced by the
+# link and kept as a backup next to it.
+plugins="$HOME/.oh-my-zsh/custom/plugins"
 rm "$link"; mkdir -p "$link"; : >"$link/keep"
 out="$(zsh "$REPO/bin/install-zsh-plugin" 2>&1)"; rc=$?
-check "existing directory is not clobbered" "0:1" "$rc:$([[ -f $link/keep ]] && print 1 || print 0)"
-check_contains "existing directory is explained" 'already exists and is not a symlink' "$out"
+backups=($plugins/herdr.backup-*(N))
+check "existing directory is overridden by a link to the plugin root" "0:link:$REPO" \
+  "$rc:$([[ -L $link ]] && print link || print dir):$(readlink "$link")"
+check "old directory is kept as one backup with its contents" "1:1" \
+  "${#backups}:$([[ -f $backups[1]/keep ]] && print 1 || print 0)"
+check_contains "replacement names the link" "replaced the directory at $link with a link to $REPO" "$out"
+check_contains "replacement names the backup" "old directory was moved to $backups[1]" "$out"
+
+# A second replacement in the same second does not touch the first backup.
+rm "$link"; mkdir -p "$link"; : >"$link/again"
+zsh "$REPO/bin/install-zsh-plugin" >/dev/null 2>&1
+backups=($plugins/herdr.backup-*(N))
+check "a later replacement gets its own backup" "2:$REPO" "${#backups}:$(readlink "$link")"
+rm -rf $plugins/herdr.backup-*(N)
+
+# The checkout already sitting at the target is never moved out from under itself.
+rm "$link"; mkdir -p "$link"; : >"$link/keep"
+out="$(HERDR_PLUGIN_ROOT="$link" zsh "$REPO/bin/install-zsh-plugin" 2>&1)"; rc=$?
+backups=($plugins/herdr.backup-*(N))
+check "a checkout at the target stays in place" "0:dir:1:0" \
+  "$rc:$([[ -L $link ]] && print link || print dir):$([[ -f $link/keep ]] && print 1 || print 0):${#backups}"
+check_contains "a checkout at the target is explained" 'is this checkout, so it was left in place' "$out"
+
+# Anything else in the way, such as a plain file, is still left alone.
+rm -rf "$link"; : >"$link"
+out="$(zsh "$REPO/bin/install-zsh-plugin" 2>&1)"; rc=$?
+check "existing file is not clobbered" "0:file" "$rc:$([[ -f $link && ! -L $link ]] && print file)"
+check_contains "existing file is explained" 'already exists and is not a symlink' "$out"
+rm -f "$link"
 
 # No Oh My Zsh: succeed so the herdr plugin still registers, but say so.
 out="$(ZSH="$SB/nowhere" zsh "$REPO/bin/install-zsh-plugin" 2>&1)"; rc=$?
